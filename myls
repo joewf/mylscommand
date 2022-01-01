@@ -1,0 +1,363 @@
+#include <dirent.h>
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <time.h>
+#include <unistd.h>
+#include "secret_headers.h"
+#define MAX_FILES 100
+#define BASE_DIRECTORY 0
+
+typedef struct Files
+{
+    char *permission;
+    char *fullPath;
+    int links;
+    int user_name;
+    int group_name;
+    int size;
+    char *date;
+    char *file_name;
+    int inode;
+    int tag;
+} Files;
+
+Files list_files[MAX_FILES];
+int total = 0;
+int numOfSubDir = 0;
+
+void stringSort(char *string) {
+    char temp;
+    int i, j;
+    int n = strlen(string);
+
+    for (i = 0; i < n - 1; i++) {
+        for (j = i + 1; j < n; j++) {
+            if (string[i] > string[j]) {
+                temp = string[i];
+                string[i] = string[j];
+                string[j] = temp;
+            }
+        }
+    }
+}
+void sort_files(int total_files) {
+    int i, j;
+    Files temp;
+    for (i = 0; i <= total_files; i++) {
+        for (j = i + 1; j < total_files; j++) {
+            if (strcmp(list_files[i].file_name, list_files[j].file_name) > 0) {  // list_files[i] greater than list_files[j]
+                // Ascending swap; a to z
+                temp = list_files[i];
+                list_files[i] = list_files[j];
+                list_files[j] = temp;
+            }
+        }
+    }
+}
+
+void print(int total_files) {
+    for (int i = 0; i < total_files; i++)
+        if (list_files[i].tag == BASE_DIRECTORY) printf("%s\n", list_files[i].file_name);
+}
+
+void print_i(int total_files) {
+    for (int i = 0; i < total_files; i++)
+        if (list_files[i].tag == BASE_DIRECTORY) printf("%d %s\n", list_files[i].inode, list_files[i].file_name);
+}
+
+void print_l(int total_files) {
+    for (int i = 0; i < total_files; i++) {
+        if (list_files[i].tag == BASE_DIRECTORY) {
+            printf("%s  %d  ", (char *)list_files[i].permission, list_files[i].links);
+            getAndPrintUserName(list_files[i].user_name);
+            getAndPrintGroup(list_files[i].group_name);
+            printf("%d  %s  %s\n", list_files[i].size, list_files[i].date, list_files[i].file_name);
+        }
+    }
+}
+
+void print_il(int total_files) {
+    for (int i = 0; i < total_files; i++) {
+        if (list_files[i].tag == BASE_DIRECTORY) {
+            printf("%d  %s  %d  ", list_files[i].inode, (char *)list_files[i].permission, list_files[i].links);
+            getAndPrintUserName(list_files[i].user_name);
+            getAndPrintGroup(list_files[i].group_name);
+            printf("%d  %s  %s\n", list_files[i].size, list_files[i].date, list_files[i].file_name);
+        }
+    }
+}
+
+void print_R(int total_files) {
+    char *dir = (char *)calloc(1, sizeof(char));
+    int tag = 0;
+    int printed = 0;
+    for (int i = 0; i <= numOfSubDir; i++) {
+        strcat(dir, ".");
+        for (int j = 0; j < total_files; j++) {
+            if (list_files[j].tag == tag) {
+                if (printed == 0) {
+                    printf("\n%s:\n", list_files[j].fullPath);
+                    printed = 1;
+                }
+                printf("%s\n", list_files[j].file_name);
+            }
+        }
+        tag++;
+        printed = 0;
+    }
+}
+
+void print_Ri(int total_files) {
+    char *dir = (char *)calloc(1, sizeof(char));
+    int tag = 0;
+
+    for (int i = 0; i <= numOfSubDir; i++) {
+        strcat(dir, ".");
+        printf("\n%s:\n", dir);
+        for (int j = 0; j < total_files; j++) {
+            if (list_files[j].tag == tag) {
+                printf("%d %s\n", list_files[j].inode, list_files[j].file_name);
+            }
+        }
+        tag++;
+    }
+}
+
+void print_Rl(int total_files) {
+    char *dir = (char *)calloc(1, sizeof(char));
+    int tag = 0;
+
+    for (int i = 0; i <= numOfSubDir; i++) {
+        strcat(dir, ".");
+        printf("\n%s:\n", dir);
+        for (int j = 0; j < total_files; j++) {
+            if (list_files[j].tag == tag) {
+                printf("%s %d  ", list_files[j].permission, list_files[j].links);
+                getAndPrintUserName(list_files[j].user_name);
+                getAndPrintGroup(list_files[j].group_name);
+                printf("%d %s %s\n", list_files[j].size, list_files[j].date, list_files[j].file_name);
+            }
+        }
+        tag++;
+    }
+}
+
+void print_Ril(int total_files) {
+    char *dir = (char *)calloc(1, sizeof(char));
+    int tag = 0;
+
+    for (int i = 0; i <= numOfSubDir; i++) {
+        strcat(dir, ".");
+        printf("\n%s:\n", dir);
+        for (int j = 0; j < total_files; j++) {
+            if (list_files[j].tag == tag) {
+                printf("%d %s %d  ", list_files[j].inode, list_files[j].permission, list_files[j].links);
+                getAndPrintUserName(list_files[j].user_name);
+                getAndPrintGroup(list_files[j].group_name);
+                printf("%d %s %s\n", list_files[j].size, list_files[j].date, list_files[j].file_name);
+            }
+        }
+        tag++;
+    }
+}
+
+char *date(struct dirent *d, char *fullPath) {
+    char *time = (char *)malloc(18);
+    struct stat file_stat;
+    stat(fullPath, &file_stat);
+    strftime(time, 18, "%b %d %Y %H:%M", localtime(&file_stat.st_mtime));
+    return time;
+}
+
+char *get_permission(struct stat file) {
+    /* https://stackoverflow.com/questions/10323060/printing-file-permissions-like-ls-l-using-stat2-in-c */
+    char *dummy = (char *)calloc(1, sizeof(char));
+
+    strcat(dummy, (S_ISDIR(file.st_mode)) ? "d" : "-");
+    strcat(dummy, (file.st_mode & S_IRUSR) ? "r" : "-");
+    strcat(dummy, (file.st_mode & S_IWUSR) ? "w" : "-");
+    strcat(dummy, (file.st_mode & S_IXUSR) ? "x" : "-");
+    strcat(dummy, (file.st_mode & S_IRGRP) ? "r" : "-");
+    strcat(dummy, (file.st_mode & S_IWGRP) ? "w" : "-");
+    strcat(dummy, (file.st_mode & S_IXGRP) ? "x" : "-");
+    strcat(dummy, (file.st_mode & S_IROTH) ? "r" : "-");
+    strcat(dummy, (file.st_mode & S_IWOTH) ? "w" : "-");
+    strcat(dummy, (file.st_mode & S_IXOTH) ? "x" : "-");
+
+    return dummy;
+}
+
+int store_metadata(DIR *dir, char *path, int currDir) {
+    struct stat file_stat;
+    struct dirent *d;
+    int user, group, n;
+
+    dir = opendir(path);
+    if (dir == NULL) {
+        return 1;
+    }
+
+    d = readdir(dir);  // Read file/directory
+    if (d == NULL) {
+        printf("Unable to read file/directory: %s\n", d->d_name);
+        return 1;
+    }
+
+    while (d != NULL) {
+        if (strcmp(d->d_name, ".") != 0 && strcmp(d->d_name, "..") != 0 && d->d_name[0] != '.') {
+            char *fullPath = (char *)malloc(sizeof(char) * 100);
+            strcpy(fullPath, path);
+            strcat(fullPath, "/");
+            strcat(fullPath, d->d_name);
+            if (stat(fullPath, &file_stat) != 0) {  // Get stat for current file/directory
+                printf("error with stat\n");
+            }
+            user = file_stat.st_uid;   // Get user number ID
+            group = file_stat.st_gid;  // Get group number ID
+            list_files[total].fullPath = path;
+            list_files[total].permission = get_permission(file_stat);  // Get permissions
+            list_files[total].links = file_stat.st_nlink;              // store link
+            list_files[total].user_name = file_stat.st_uid;            // store user number ID
+            list_files[total].group_name = file_stat.st_gid;           // store group number ID
+            list_files[total].size = file_stat.st_size;                // store size
+            list_files[total].date = date(d, fullPath);                // store time
+            list_files[total].file_name = d->d_name;                   // store file name
+            list_files[total].inode = d->d_ino;                        // store inode
+            list_files[total].tag = currDir;                           // store tag in current directory
+            total++;
+            if (d->d_type == DT_DIR) {                       // If file is a directory file
+                numOfSubDir++;                               // Count number of sub-directories
+                store_metadata(dir, fullPath, numOfSubDir);  // Depth-first traversal for sub-directories
+            }
+            else {
+                store_metadata(dir, fullPath, currDir);  // Traverse through files in the same directory
+            }
+        }
+        d = readdir(dir);  // Get next file/directory
+    }
+
+    n = total;
+    return n;
+}
+void handleFlagAndPrint(int i, int l, int R, char *path) {
+    DIR *dir;
+    printf("entering");
+    if (path == NULL) {
+        dir = opendir(".");
+        if (dir == NULL) {
+            printf("Invalid path. Exiting...\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+    else {
+        dir = opendir(path);
+        if (dir == NULL) {
+            printf("Invalid path. Exiting...\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+    int total_files = store_metadata(dir, path, BASE_DIRECTORY);
+    sort_files(total_files);
+    if (i == 0 && l == 0 && R == 0) {
+        print(total_files);
+    }
+    else if (i == 1 && l == 0 && R == 0) {
+        // i case
+        print_i(total_files);
+    }
+    else if (i == 0 && l == 1 && R == 0) {
+        // l case
+        print_l(total_files);
+    }
+    else if (i == 0 && l == 0 && R == 1) {
+        // R case
+        print_R(total_files);
+    }
+    else if (i == 1 && l == 1 && R == 0) {
+        // il case
+        print_il(total_files);
+    }
+    else if (i == 1 && l == 0 & R == 1) {
+        // Ri case
+        print_Ri(total_files);
+    }
+    else if (i == 0 && l == 1 && R == 1) {
+        // Rl case
+        print_Rl(total_files);
+    }
+    else if (i == 1 && l == 1 && R == 1) {
+        // Ril case
+        print_Ril(total_files);
+    }
+    closedir(dir);  // Close directory
+}
+
+int main(int argc, char const *argv[]) {
+    const char *options;
+    const char *file;
+    char *path = malloc(100 * sizeof(char));
+    int i_flag = 0;
+    int l_flag = 0;
+    int R_flag = 0;
+    struct dirent *d;
+    DIR *dir;
+
+    // Open current directory
+    if (argc < 1 || argc > 5) {
+        printf("Enter at least 2 arguments and no more than 3 arguments\n");
+        exit(EXIT_FAILURE);
+    }
+    if (argc == 1) {  // no arguments provided
+        strcpy(path, ".");
+    }
+    else {
+        if (argv[argc - 1][0] != '-') {  // checks if last argument is a flag or a path
+                                         // TODO: need to write a check if path exists here to prevent seg fault
+            strcpy(path, argv[argc - 1]);
+        }
+        else {  // if path not provided, use current directory as default
+            strcpy(path, ".");
+        }
+        for (int i = 0; i < argc; i++) {  // go through arguments and tick off appropriate flags
+            if (argv[i][0] == '-') {
+                options = argv[i];
+                stringSort(options);
+                if (strcmp(options, "-i") == 0) {
+                    i_flag = 1;
+                }
+                else if (strcmp(options, "-l") == 0) {
+                    l_flag = 1;
+                }
+                else if (strcmp(options, "-R") == 0) {
+                    R_flag = 1;
+                }
+                else if (strcmp(options, "-Ril") == 0) {
+                    i_flag = 1;
+                    l_flag = 1;
+                    R_flag = 1;
+                }
+                else if (strcmp(options, "-il") == 0) {
+                    i_flag = 1;
+                    l_flag = 1;
+                }
+                else if (strcmp(options, "-Rl") == 0) {
+                    R_flag = 1;
+                    l_flag = 1;
+                }
+                else if (strcmp(options, "-Ri") == 0) {
+                    R_flag = 1;
+                    i_flag = 1;
+                }
+                else {
+                    printf("invalid flag. terminating...\n");
+                    exit(0);
+                }
+            }
+        }
+    }
+    handleFlagAndPrint(i_flag, l_flag, R_flag, path);
+    return 0;
+}
